@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { MarkdownRenderer } from './components/MarkdownRenderer';
-import { Edit3, Eye, FileText, Download } from 'lucide-react';
+import { Edit3, Eye, FileText, Download, ChevronDown, FileCode, Printer, UploadCloud, Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 const DEFAULT_MARKDOWN = `
@@ -100,8 +100,84 @@ spec:
 export default function App() {
   const [markdown, setMarkdown] = useState(DEFAULT_MARKDOWN.trim());
   const [mode, setMode] = useState<'preview' | 'edit'>('preview');
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const dragCounter = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleDownload = () => {
+  const processFile = (file: File) => {
+    if (file.name.endsWith('.md') || file.name.endsWith('.markdown') || file.type === 'text/markdown' || file.type.startsWith('text/')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        if (content) {
+          setMarkdown(content);
+          setMode('preview');
+        }
+      };
+      reader.readAsText(file);
+    } else {
+      alert('请上传有效的 Markdown (.md) 文件。');
+    }
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current += 1;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current -= 1;
+    if (dragCounter.current === 0) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    dragCounter.current = 0;
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      processFile(files[0]);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processFile(file);
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => setShowDownloadMenu(false);
+    if (showDownloadMenu) {
+      // Small delay to prevent immediate closure from the toggle click
+      setTimeout(() => document.addEventListener('click', handleClickOutside), 10);
+    }
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [showDownloadMenu]);
+
+  const handleDownloadMarkdown = () => {
     const blob = new Blob([markdown], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -111,10 +187,137 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadHTML = () => {
+    if (!previewRef.current) return;
+    const contentHtml = previewRef.current.innerHTML;
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Exported Document</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #FAFAFA;
+      color: #111827;
+      -webkit-font-smoothing: antialiased;
+    }
+    /* Hide copy buttons in export since they rely on React state/events */
+    button[aria-label="Copy code"] {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div class="bg-white p-8 sm:p-16 rounded-3xl shadow-sm border border-gray-200/60">
+      ${contentHtml}
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'document.html';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const executePrintDownload = () => {
+    if (!previewRef.current) return;
+    const contentHtml = previewRef.current.innerHTML;
+    
+    // Generate a specialized HTML file that auto-triggers the print dialog
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Print Document</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #ffffff;
+      color: #000000;
+      -webkit-font-smoothing: antialiased;
+    }
+    button[aria-label="Copy code"] { display: none !important; }
+    @media print {
+      @page { margin: 20mm; }
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <div class="max-w-4xl mx-auto px-8 py-12">
+    ${contentHtml}
+  </div>
+  <script>
+    // Automatically trigger print dialog when opened locally
+    window.onload = () => {
+      setTimeout(() => {
+        window.print();
+      }, 500);
+    };
+  </script>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'print-ready.html';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handlePrintPDF = () => {
+    if (mode !== 'preview') {
+      setMode('preview');
+      // Wait for React to render the preview and Framer Motion to finish
+      setTimeout(() => executePrintDownload(), 300);
+    } else {
+      executePrintDownload();
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-[#F9FAFB] text-gray-900 font-sans selection:bg-blue-100 selection:text-blue-900">
+    <div 
+      className="min-h-screen bg-[#F9FAFB] text-gray-900 font-sans selection:bg-blue-100 selection:text-blue-900 print:bg-white relative"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {/* Drag Overlay */}
+      <AnimatePresence>
+        {isDragging && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-blue-50/90 backdrop-blur-sm border-4 border-dashed border-blue-400 m-4 rounded-3xl"
+          >
+            <div className="flex flex-col items-center justify-center text-blue-600 pointer-events-none">
+              <UploadCloud className="w-20 h-20 mb-6 animate-bounce" />
+              <h2 className="text-3xl font-bold tracking-tight mb-2">松开鼠标，立即预览</h2>
+              <p className="text-blue-500/80 font-medium">Release to instantly preview your document</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-200 shadow-sm">
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-200 shadow-sm print:hidden">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 bg-gray-900 rounded-lg flex items-center justify-center shadow-md">
@@ -124,13 +327,60 @@ export default function App() {
           </div>
           
           <div className="flex items-center space-x-4">
-            <button
-              onClick={handleDownload}
-              className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
-              title="Download Markdown"
-            >
-              <Download className="w-5 h-5" />
-            </button>
+            <div className="flex items-center space-x-2 mr-2 border-r border-gray-200 pr-4">
+              <input
+                type="file"
+                accept=".md,.markdown,text/markdown"
+                className="hidden"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center space-x-1 p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Upload Markdown File"
+              >
+                <Upload className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="relative">
+              <button
+                onClick={() => setShowDownloadMenu(!showDownloadMenu)}
+                className="flex items-center space-x-1 p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Export Options"
+              >
+                <Download className="w-5 h-5" />
+                <ChevronDown className="w-4 h-4" />
+              </button>
+
+              <AnimatePresence>
+                {showDownloadMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-100 py-2 z-50 overflow-hidden"
+                  >
+                    <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider bg-gray-50/50 border-b border-gray-100">Export As</div>
+                    <button onClick={handleDownloadMarkdown} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-3 transition-colors">
+                      <FileText className="w-4 h-4 text-blue-500" />
+                      <span>Markdown Source</span>
+                    </button>
+                    <button onClick={handleDownloadHTML} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-3 transition-colors">
+                      <FileCode className="w-4 h-4 text-emerald-500" />
+                      <span>Standalone HTML</span>
+                    </button>
+                    <button onClick={handlePrintPDF} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-3 transition-colors">
+                      <Printer className="w-4 h-4 text-purple-500" />
+                      <span>Print / Save as PDF</span>
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
             <div className="flex bg-gray-100 p-1 rounded-full shadow-inner border border-gray-200/50">
               <button
                 onClick={() => setMode('preview')}
@@ -160,7 +410,7 @@ export default function App() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12 print:p-0 print:max-w-none">
         <AnimatePresence mode="wait">
           {mode === 'preview' ? (
             <motion.div
@@ -169,9 +419,11 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              className="bg-white p-8 sm:p-16 rounded-3xl shadow-sm border border-gray-200/60 min-h-[80vh]"
+              className="bg-white p-8 sm:p-16 rounded-3xl shadow-sm border border-gray-200/60 min-h-[80vh] print:shadow-none print:border-none print:p-0 print:min-h-0"
             >
-              <MarkdownRenderer content={markdown} />
+              <div ref={previewRef}>
+                <MarkdownRenderer content={markdown} />
+              </div>
             </motion.div>
           ) : (
             <motion.div
